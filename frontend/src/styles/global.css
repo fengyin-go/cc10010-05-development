@@ -35,3 +35,9 @@ body { margin: 0; background: #f6f8fb; color: #1f2937; }
 .error-text { color: #b42318; }
 .status-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 10px; font-size: 12px; color: var(--muted); }
 .legend-item { background: #eef2f7; border-radius: 999px; padding: 2px 10px; }
+.notice { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; }
+.notice-ok { background: #effaf3; border-color: #a6e3bd; }
+.notice-bad { background: #fff5f4; border-color: #f3b4ae; }
+.notice-list { margin: 6px 0 0; padding-left: 18px; }
+.notice-list li { margin: 2px 0; }
+.notice-link { margin: 6px 0 0; }

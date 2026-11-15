@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 
-import { downloadEntries, listEntries, moduleMeta, runAction as applyAction } from '@/api/local-service'
+import {
+  downloadEntries,
+  listEntries,
+  moduleMeta,
+  runAction as applyAction,
+} from '@/api/local-service'
+import { subscribeStorage } from '@/data/local-store'
 import type { EntryRow } from '@/data/types'
 
 const meta = moduleMeta('bronze')
@@ -40,10 +47,20 @@ const stats = [
   }
 ]
 
+type Feedback = {
+  ok: boolean
+  message: string
+  detail: string[]
+  snapshotCode?: string
+  targetTableName?: string
+}
+
 export default function BronzeView() {
   const [rows, setRows] = useState<EntryRow[]>([])
+  const [allRows, setAllRows] = useState<EntryRow[]>([])
   const [total, setTotal] = useState(0)
   const [errorMessage, setErrorMessage] = useState('')
+  const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [filters, setFilters] = useState<Record<string, string>>({})
   const filterFields = useMemo(() => columns.slice(0, 3), [])
 
@@ -53,6 +70,7 @@ export default function BronzeView() {
       const payload = listEntries(meta.key, filters)
       setRows(payload.items)
       setTotal(payload.total)
+      setAllRows(listEntries(meta.key).items)
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '原始层管理列表读取失败')
     }
@@ -62,22 +80,36 @@ export default function BronzeView() {
     reload()
   }, [reload])
 
+  useEffect(() => subscribeStorage(reload), [reload])
+
   function runAction(action: string, row: EntryRow) {
     setErrorMessage('')
+    setFeedback(null)
     const result = applyAction(meta.key, Number(row.id), action)
     if (!result.ok) {
       setErrorMessage(result.message)
+      setFeedback({ ok: false, message: result.message, detail: result.detail ?? [] })
+      reload()
       return
     }
+    setFeedback({
+      ok: true,
+      message: result.message,
+      detail: result.detail ?? [],
+      snapshotCode: result.snapshotCode,
+      targetTableName: result.targetTableName,
+    })
     reload()
   }
+
+  const statValues = [allRows.length, allRows.filter((row) => String(row.status) === '已启用').length, allRows.filter((row) => String(row.status) === '待校验').length]
 
   return (
     <section className="page" data-module="bronze">
       <header className="page-head">
         <div>
-          <h2>原始层管理管理</h2>
-          <p className="page-desc">维护原始层表的输入、执行约束与结果记录，为原始层管理提供可验证的数据工程流程。</p>
+          <h2>原始层管理</h2>
+          <p className="page-desc">原始表需通过来源通道、格式压缩、目标路径与分区规则四项启用资格检查，启用后同时生成待创建快照。</p>
         </div>
         <div className="page-actions">
           <button className="btn primary" type="button" onClick={() => setErrorMessage('原始表登记入口尚未接入审批流')}>
@@ -90,10 +122,10 @@ export default function BronzeView() {
       </header>
 
       <div className="stat-row">
-        {stats.map((item) => (
+        {stats.map((item, index) => (
           <article key={item.label} className="stat-card">
             <span className="stat-label">{item.label}</span>
-            <strong className="stat-value">{item.value}</strong>
+            <strong className="stat-value">{statValues[index]}</strong>
           </article>
         ))}
       </div>
@@ -101,10 +133,28 @@ export default function BronzeView() {
       <p className="status-legend">
         {statuses.map((status: string) => (
           <span key={status} className="legend-item">
-            {status}：{rows.filter((row) => String(row.status) === status).length}
+            {status}：{allRows.filter((row) => String(row.status) === status).length}
           </span>
         ))}
       </p>
+
+      {feedback && (
+        <div className={feedback.ok ? 'notice notice-ok' : 'notice notice-bad'} data-testid="bronze-feedback">
+          <strong>{feedback.message}</strong>
+          {feedback.detail.length > 0 && (
+            <ul className="notice-list">
+              {feedback.detail.map((line) => <li key={line}>{line}</li>)}
+            </ul>
+          )}
+          {feedback.snapshotCode && (
+            <p className="notice-link">
+              已生成待创建快照 <Link to="/snapshot">{feedback.snapshotCode}</Link>
+              {feedback.targetTableName ? `，目标表名 ${feedback.targetTableName}` : ''}
+              ，可在版本快照页查看本次校验结果。
+            </p>
+          )}
+        </div>
+      )}
 
       <form className="filter-bar" onSubmit={(event) => { event.preventDefault(); reload() }}>
         {filterFields.map((field) => (
@@ -136,7 +186,13 @@ export default function BronzeView() {
               <td>{row.status}</td>
               <td className="row-actions">
                 {actions.map((action) => (
-                  <button key={action} className="link" type="button" onClick={() => runAction(action, row)}>
+                  <button
+                    key={action}
+                    className="link"
+                    type="button"
+                    title={action === '启用同步' ? '需通过四项启用资格检查，并与待创建快照同事务写入' : action}
+                    onClick={() => runAction(action, row)}
+                  >
                     {action}
                   </button>
                 ))}
